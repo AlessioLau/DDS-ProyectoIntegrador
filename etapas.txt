@@ -1,0 +1,583 @@
+ETAPA 5
+
+const express = require("express");
+const router = express.Router();
+const db = require("../base-orm/sequelize-init");
+const { Op, ValidationError } = require("sequelize");
+
+router.get("/api/articulos", async function (req, res, next) {
+  // #swagger.tags = ['Articulos']
+  // #swagger.summary = 'obtiene todos los Articulos'
+  // consulta de articulos con filtros y paginacion
+
+  let where = {};
+  if (req.query.Nombre != undefined && req.query.Nombre !== "") {
+    where.Nombre = {
+      [Op.like]: "%" + req.query.Nombre + "%",
+    };
+  }
+  if (req.query.Activo != undefined && req.query.Activo !== "") {
+    // true o false en el modelo, en base de datos es 1 o 0
+    // convierto el string a booleano
+    where.Activo = req.query.Activo === "true";
+  }
+  const Pagina = req.query.Pagina ?? 1;
+  const TamañoPagina = 10;
+  const { count, rows } = await db.articulos.findAndCountAll({
+    attributes: [
+      "IdArticulo",
+      "Nombre",
+      "Precio",
+      "Stock",
+      "FechaAlta",
+      "Activo",
+    ],
+    order: [["Nombre", "ASC"]],
+    where,
+    offset: (Pagina - 1) * TamañoPagina,
+    limit: TamañoPagina,
+  });
+
+  return res.json({ Items: rows, RegistrosTotal: count });
+});
+
+router.get("/api/articulos/:id", async function (req, res, next) {
+  // #swagger.tags = ['Articulos']
+  // #swagger.summary = 'obtiene un Articulo'
+  // #swagger.parameters['id'] = { description: 'identificador del Articulo...' }
+  let items = await db.articulos.findOne({
+    attributes: [
+      "IdArticulo",
+      "Nombre",
+      "Precio",
+      "CodigoDeBarra",
+      "IdArticuloFamilia",
+      "Stock",
+      "FechaAlta",
+      "Activo",
+    ],
+    where: { IdArticulo: req.params.id },
+  });
+  res.json(items);
+});
+
+router.post("/api/articulos/", async (req, res) => {
+  // #swagger.tags = ['Articulos']
+  // #swagger.summary = 'agrega un Articulos'
+  /*    #swagger.parameters['item'] = {
+                in: 'body',
+                description: 'nuevo Articulo',
+                schema: { $ref: '#/definitions/Articulos' }
+    } */
+  try {
+    let data = await db.articulos.create({
+      Nombre: req.body.Nombre,
+      Precio: req.body.Precio,
+      CodigoDeBarra: req.body.CodigoDeBarra,
+      IdArticuloFamilia: req.body.IdArticuloFamilia,
+      Stock: req.body.Stock,
+      FechaAlta: req.body.FechaAlta,
+      Activo: req.body.Activo,
+    });
+    res.status(200).json(data.dataValues); // devolvemos el registro agregado!
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      // si son errores de validacion, los devolvemos
+      let messages = '';
+      err.errors.forEach((x) => messages += (x.path ?? 'campo') + ": " + x.message + '\n');
+      res.status(400).json({message : messages});
+    } else {
+      // si son errores desconocidos, los dejamos que los controle el middleware de errores
+      throw err;
+    }
+  }
+});
+
+router.put("/api/articulos/:id", async (req, res) => {
+  // #swagger.tags = ['Articulos']
+  // #swagger.summary = 'actualiza un Articulo'
+  // #swagger.parameters['id'] = { description: 'identificador del Articulo...' }
+  /*    #swagger.parameters['Articulo'] = {
+                in: 'body',
+                description: 'Articulo a actualizar',
+                schema: { $ref: '#/definitions/Articulos' }
+    } */
+
+  try {
+    let item = await db.articulos.findOne({
+      attributes: [
+        "IdArticulo",
+        "Nombre",
+        "Precio",
+        "CodigoDeBarra",
+        "IdArticuloFamilia",
+        "Stock",
+        "FechaAlta",
+        "Activo",
+      ],
+      where: { IdArticulo: req.params.id },
+    });
+    if (!item) {
+      res.status(404).json({ message: "Articulo no encontrado" });
+      return;
+    }
+    item.Nombre = req.body.Nombre;
+    item.Precio = req.body.Precio;
+    item.CodigoDeBarra = req.body.CodigoDeBarra;
+    item.IdArticuloFamilia = req.body.IdArticuloFamilia;
+    item.Stock = req.body.Stock;
+    item.FechaAlta = req.body.FechaAlta;
+    item.Activo = req.body.Activo;
+    await item.save();
+
+    // otra forma de hacerlo
+    // let data = await db.articulos.update(
+    //   {
+    //     Nombre: req.body.Nombre,
+    //     Precio: req.body.Precio,
+    //     CodigoDeBarra: req.body.CodigoDeBarra,
+    //     IdArticuloFamilia: req.body.IdArticuloFamilia,
+    //     Stock: req.body.Stock,
+    //     FechaAlta: req.body.FechaAlta,
+    //     Activo: req.body.Activo,
+    //   },
+    //   { where: { IdArticulo: req.params.id } }
+    // );
+    res.sendStatus(200);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      // si son errores de validacion, los devolvemos
+      let messages = '';
+      err.errors.forEach((x) => messages += x.path + ": " + x.message + '\n');
+      res.status(400).json({message : messages});
+    } else {
+      // si son errores desconocidos, los dejamos que los controle el middleware de errores
+      throw err;
+    }
+  }
+});
+
+router.delete("/api/articulos/:id", async (req, res) => {
+  // #swagger.tags = ['Articulos']
+  // #swagger.summary = 'elimina un Articulo'
+  // #swagger.parameters['id'] = { description: 'identificador del Articulo..' }
+
+  let bajaFisica = false;
+
+  if (bajaFisica) {
+    // baja fisica
+    let filasBorradas = await db.articulos.destroy({
+      where: { IdArticulo: req.params.id },
+    });
+    if (filasBorradas == 1) res.sendStatus(200);
+    else res.sendStatus(404);
+  } else {
+    // baja logica
+    try {
+      let data = await db.sequelize.query(
+        "UPDATE articulos SET Activo = case when Activo = 1 then 0 else 1 end WHERE IdArticulo = :IdArticulo",
+        {
+          replacements: { IdArticulo: +req.params.id },
+        }
+      );
+      res.sendStatus(200);
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        // si son errores de validacion, los devolvemos
+        const messages = err.errors.map((x) => x.message);
+        res.status(400).json(messages);
+      } else {
+        // si son errores desconocidos, los dejamos que los controle el middleware de errores
+        throw err;
+      }
+    }
+  }
+});
+module.exports = router;
+
+
+
+
+
+Etapa 6
+En esta etapa implementaremos test unitarios para validar las webapis desarrolladas, para lo cual utilizaremos las librerias: jest y supertest.
+Para iniciar nos aseguramos tener instalada a nivel global la libreria jest, con la cual se ejecutan las pruebas unitarias:
+
+npm install -g jest
+
+
+luego a nivel de nuestro proyecto instalaremos como dependencia de desarrollo la libreria supertest:
+
+npm install --save-dev supertest
+
+
+Ya instaladas las librerias necesarias escribiremos nuestro primer arcchivo de test, para lo cual crearemos el archivo: test/pruebainicial.test.js, con el siguiente contenido:
+
+const request = require("supertest");
+const app = require("../index");
+
+describe("Ejemplo simple, test que no falla", () => {
+  it("Simplemente compruebo si true === true", () => {
+    expect(true).toBe(true);
+  });
+});
+
+describe("GET hola mundo", () => {
+  it("Deberia devolver Hola mundo!", async () => {
+    const res = await request(app).get("/");
+    expect(res.statusCode).toEqual(200);
+    expect(res.text).toEqual('Hola mundo!');
+  });
+});
+
+describe("GET _isalive", () => {
+  it("Deberia devolver ejecutandose desde ...", async () => {
+    const res = await request(app).get("/_isalive");
+    expect(res.statusCode).toEqual(200);
+    expect(res.text).toContain('Ejecutandose desde:');
+  });
+});
+
+describe("GET 404", () => {
+  it("Deberia devolver error 404 y su texto apropiado", async () => {
+    const res = await request(app).get("/urlinexistente");
+    expect(res.statusCode).toEqual(404);
+    expect(res.text).toEqual("No encontrada!");
+  });
+});
+
+
+Antes de ejecutarlo necesitamos hacer un cambio a nuestra aplicacion, para que la misma no 
+inicie el servidor web al momento de ejecutar los test, para lo cual modificaremos el 
+archivo: index.js, condicionando el inicio del servidor web, para que solo se ejecute cuando 
+no se este ejecutando los test y tambien exporte la aplicacion express, para lo cual haremos 
+el siguiente cambio:
+Reemplazar:
+
+  const port = process.env.PORT || 3000;   // en produccion se usa el puerto de la variable de entorno PORT
+  app.locals.fechaInicio = new Date();
+  app.listen(port, () => {
+    console.log(`sitio escuchando en el puerto ${port}`);
+  });
+
+
+por:
+
+if (!module.parent) {   // si no es llamado por otro modulo, es decir, si es el modulo principal -> levantamos el servidor
+  const port = process.env.PORT || 3000;   // en produccion se usa el puerto de la variable de entorno PORT
+  app.locals.fechaInicio = new Date();
+  app.listen(port, () => {
+    console.log(`sitio escuchando en el puerto ${port}`);
+  });
+}
+module.exports = app; // para testing
+
+
+Observe:
+
+module.parent: es una variable que se define cuando se ejecuta un modulo desde otro modulo,
+ en este caso cuando se ejecuta el test desde el archivo: test/pruebainicial.test.js, esta 
+ variable se define, por lo tanto el servidor web no se inicia, pero si se ejecuta el test 
+ desde el navegador, esta variable no se define, por lo tanto el servidor web se inicia
+
+Ahora ejecutaremos el test, para lo cual ejecutaremos el siguiente comando:
+
+jest test/pruebainicial.test.js
+
+
+Observe:
+
+si ejecuta el comando: jest, sin especificar el archivo de test, se ejecutaran todos los 
+test que se encuentren en la carpeta test
+si alguna prueba falla, indica que dicha prueba no paso, y muestra el error que se produjo.
+
+Ejercicio:
+
+En el caso de la funcionalidad Hola mundo!, si la misma no esta implementada en la 
+aplicacion, le proponemos implementarla y volver a verificarla.
+En el caso de la funcionalidad _isalive, si la misma no esta implementada en la 
+aplicacion, le proponemos implementarla y volver a verificarla.
+
+Seguidamente crearemos un test para validar la webapi de articulosfamilias, para lo cual 
+crearemos el archivo: test/articulosfamilias.test.js, con el siguiente contenido:
+
+const request = require("supertest");
+const app = require("../index");
+
+describe("GET /api/articulosfamilias", function () {
+  it("Devolveria todos los artciulosfamilias", async function () {
+    const res = await request(app)
+      .get("/api/articulosfamilias")
+      .set("content-type", "application/json");
+    expect(res.headers["content-type"]).toEqual(
+      "application/json; charset=utf-8"
+    );
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          IdArticuloFamilia: expect.any(Number),
+          Nombre: expect.any(String),
+        }),
+      ])
+    );
+  });
+});
+
+
+describe("GET /api/articulosfamilias/:id", function () {
+  it("respond with json containing a single artciulosfamilias", async function () {
+    const res = await request(app)
+      .get("/api/articulosfamilias/1");
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        IdArticuloFamilia: 1,
+        Nombre: expect.any(String),
+      })
+    );
+  });
+});
+
+
+
+Observe:
+
+solo se testean los metodos GET; el primero testea la webapi de articulosfamilias y verifica 
+que la respuesta sea un array con objetos que contengan los atributos IdArticuloFamilia y 
+Nombre. El segundo testea la webapi de articulosfamilias/:id y verifica que la respuesta sea
+ un objeto que contenga los atributos IdArticuloFamilia = 1 y Nombre sea un texto.
+
+Ejercicio:
+
+Implemente los test para metodos faltantes de la webapi de articulosfamilias.
+
+Ahora continuaremos con la implementacion de test para la webapi de articulos, para lo cual crearemos el archivo: test/articulos.test.js, con el siguiente contenido:
+
+const request = require("supertest");
+const app = require("../index");
+const articuloAlta = {
+  Nombre: "Articulo " + (( ) => (Math.random() + 1).toString(36).substring(2))(),  // Genera un nombre aleatorio
+  Precio: 10.5,
+  CodigoDeBarra: "1234567890123",
+  IdArticuloFamilia: 1,
+  Stock: 11,
+  FechaAlta: new Date().toISOString(),
+  Activo: true,
+};
+const articuloModificacion = {
+  IdArticulo: 1,
+  Nombre: "Articulo " + (( ) => (Math.random() + 1).toString(36).substring(2))(),  // Genera un nombre aleatorio
+  Precio: 10.5,
+  CodigoDeBarra: "1234567890123",
+  IdArticuloFamilia: 1,
+  Stock: 11,
+  FechaAlta: new Date().toISOString(),
+  Activo: true,
+};
+
+
+// test route/articulos GET
+describe("GET /api/articulos", () => {
+  it("Deberia devolver todos los articulos", async () => {
+    const res = await request(app).get("/api/articulos");
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+     expect.objectContaining({
+      Items: 
+      expect.arrayContaining([
+        expect.objectContaining({
+          IdArticulo: expect.any(Number),
+          Nombre: expect.any(String),
+          Precio: expect.any(Number),
+          CodigoDeBarra: expect.any(String),
+          IdArticuloFamilia: expect.any(Number),
+          Stock: expect.any(Number),
+          FechaAlta: expect.any(String),
+          Activo: expect.any(Boolean)
+        })
+      ]),
+      RegistrosTotal:  expect.any(Number) 
+     })
+    );
+  });
+});
+
+// test route/articulos/:id GET
+describe("GET /api/articulos/:id", () => {
+  it("Deberia devolver el articulo con el id 1", async () => {
+    const res = await request(app).get("/api/articulos/1");
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        IdArticulo: expect.any(Number),
+        Nombre: expect.any(String),
+        Precio: expect.any(Number),
+        CodigoDeBarra: expect.any(String),
+        IdArticuloFamilia: expect.any(Number),
+        Stock: expect.any(Number),
+        FechaAlta: expect.any(String),
+        Activo: expect.any(Boolean),
+      })
+    );
+  });
+});
+
+// test route/articulos POST
+describe("POST /api/articulos", () => {
+  it("Deberia devolver el articulo que acabo de crear", async () => {
+    const res = await request(app).post("/api/articulos").send(articuloAlta);
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        IdArticulo: expect.any(Number),
+        Nombre: expect.any(String),
+        Precio: expect.any(Number),
+        CodigoDeBarra: expect.any(String),
+        IdArticuloFamilia: expect.any(Number),
+        Stock: expect.any(Number),
+        FechaAlta: expect.any(String),
+        Activo: expect.any(Boolean),
+      })
+    );
+  });
+});
+
+// test route/articulos/:id PUT
+describe("PUT /api/articulos/:id", () => {
+  it("Deberia devolver el articulo con el id 1 modificado", async () => {
+    const res = await request(app).put("/api/articulos/1").send(articuloModificacion);
+    expect(res.statusCode).toEqual(200);
+  });
+});
+
+// test route/articulos/:id DELETE
+describe("DELETE /api/articulos/:id", () => {
+  it("Deberia devolver el articulo con el id 1 borrado", async () => {
+    const res = await request(app).delete("/api/articulos/1");
+    expect(res.statusCode).toEqual(200);
+    
+    // baja logica, no se borra realmente
+    // expect(res.body).toEqual(
+    //   expect.objectContaining({
+    //     IdArticulo: expect.any(Number),
+    //     Nombre: expect.any(String),
+    //     Precio: expect.any(Number),
+    //   })
+    // );
+
+  });
+});
+
+
+Observe:
+
+se testean los metodos GET, POST, PUT y DELETE de la webapi de articulos
+se prepara un objeto articuloAlta para testear el metodo POST
+se prepata un objeto articuloModificacion para testear el metodo PUT
+tanto para el alta como para la modificacion se genera un nombre aleatorio para el articulo, asi no se repiten los nombres de los articulos en la base de datos, lo que es exigido en base de datos.
+
+Ahora continuaremos con un test para probar las webapi de seguridad de nuestra aplicacion, para lo cual crearemos el archivo: test/seguridad.test.js, con el siguiente contenido:
+
+const request = require("supertest");
+const app = require("../index");
+
+const usuarioAdmin = { usuario: "admin", clave: "123" };
+const usuarioMiembro = { usuario: "juan", clave: "123" };
+
+
+describe("POST /api/login admin", function () {
+  it("Devolveria error de autenticacion, porque tiene clave erronea", async function () {
+    const res = await request(app)
+      .post("/api/login")
+      //.set("Content-type", "application/json")
+      .send({ usuario: "admin", clave: "erronea" });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.message).toEqual("usuario or clave incorrecto");
+  });
+
+  it("Devolveria el token para usuario admin", async function () {
+    const res = await request(app).post("/api/login").send(usuarioAdmin);
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.accessToken).toEqual(expect.any(String));
+  });
+});
+
+describe("GET /api/jwt/articulos", () => {
+
+  it("Devolveria error, porque falta token de autorizacion", async function () {
+    const res = await request(app).get("/api/jwt/articulos");
+    expect(res.statusCode).toEqual(401);
+    expect(res.body.message).toEqual("Acceso denegado");
+  });
+
+  it("Devolveria error, porque el token no es valido", async function () {
+    const res = await request(app).get("/api/jwt/articulos")
+    .set("Authorization", 'Bearer invalido');
+    expect(res.statusCode).toEqual(403);
+    expect(res.body.message).toEqual("token no es valido");
+  });
+
+  it("Devolveria todos los articulos, solo autorizado para administradores", async function () {
+    const res1 = await request(app)
+    .post("/api/login")
+    .set("Content-type", "application/json")
+    .send(usuarioAdmin);
+    expect(res1.statusCode).toEqual(200);
+    let token = res1.body.accessToken;
+
+    const res = await request(app)
+      .get("/api/jwt/articulos")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          IdArticulo: expect.any(Number),
+          Nombre: expect.any(String),
+          Precio: expect.any(Number),
+          CodigoDeBarra: expect.any(String),
+          IdArticuloFamilia: expect.any(Number),
+          Stock: expect.any(Number),
+          FechaAlta: expect.any(String),
+          Activo: expect.any(Boolean),
+        }),
+      ])
+    );
+  });
+
+  it("Devolveria error de autorizacion, porque solo estan autorizados los administradores", async function () {
+    const res1 = await request(app)
+    .post("/api/login")
+    .set("Content-type", "application/json")
+    .send(usuarioMiembro);
+    expect(res1.statusCode).toEqual(200);
+    let token = res1.body.accessToken;
+
+    const res = await request(app)
+      .get("/api/jwt/articulos")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.statusCode).toEqual(403);
+    expect(res.body.message).toEqual('usuario no autorizado!');
+  });
+
+});
+
+
+Observe:
+
+se testean metodos con resultados exitosos
+se testean los metodos con resultados erroneos
+
+Finalmente, para poder ejecutar todos los tests, como un scripts en el archivo package.json, agregaremos la siguiente propiedad al objeto script:
+
+  "test": "jest --testTimeout=10000"
+
+
+con lo cual podremos ejecutar los test con el comando:
+
+npm run test
